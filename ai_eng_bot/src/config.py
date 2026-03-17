@@ -31,9 +31,14 @@ class Settings(BaseSettings):
     # Admin
     admin_ids: str = ""  # comma-separated Telegram user IDs, e.g. "123,456"
 
+    # Logging
+    log_path: str = "./ai_eng_bot/data/bot.log"
+    log_level: str = "INFO"
+
     def ensure_paths(self) -> None:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         Path(self.stats_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.log_path).parent.mkdir(parents=True, exist_ok=True)
 
     def admin_id_set(self) -> set[int]:
         raw = (self.admin_ids or "").strip()

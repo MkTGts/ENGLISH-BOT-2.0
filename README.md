@@ -84,6 +84,8 @@ python main.py
 
 - **`DB_PATH`**: путь к SQLite базе (`./ai_eng_bot/data/database.db`)
 - **`STATS_PATH`**: куда писать `stats.txt`
+- **`LOG_PATH`**: файл логов (с ротацией)
+- **`LOG_LEVEL`**: уровень логирования (`INFO`, `DEBUG`, ...)
 - **`HISTORY_TTL_DAYS`**: TTL истории (дни)
 - **`LLM_CONTEXT_MESSAGES`**: максимум сообщений истории, которые отправляем в модель (дополнительно ограничивается планом)
 - **`LLM_REQUEST_TIMEOUT_S`**: таймаут запроса к LLM

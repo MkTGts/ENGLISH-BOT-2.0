@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from pathlib import Path
 
@@ -10,6 +11,9 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
+from aiogram.types.bot_command_scope_chat import BotCommandScopeChat
+from aiogram.types.bot_command_scope_default import BotCommandScopeDefault
 from aiogram.types import ErrorEvent, Update
 
 from ai_eng_bot.src.config import settings
@@ -32,17 +36,30 @@ def _setup_logging() -> None:
                 record.chat_id = "-"
             return super().format(record)
 
+    level = getattr(logging, (settings.log_level or "INFO").upper(), logging.INFO)
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    root.setLevel(level)
 
     handler = logging.StreamHandler()
-    handler.setLevel(logging.INFO)
+    handler.setLevel(level)
     handler.setFormatter(
+        SafeCorrelationFormatter("%(asctime)s %(levelname)s %(name)s | user=%(user_id)s chat=%(chat_id)s | %(message)s")
+    )
+
+    file_handler = RotatingFileHandler(
+        filename=settings.log_path,
+        maxBytes=5 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(level)
+    file_handler.setFormatter(
         SafeCorrelationFormatter("%(asctime)s %(levelname)s %(name)s | user=%(user_id)s chat=%(chat_id)s | %(message)s")
     )
 
     root.handlers.clear()
     root.addHandler(handler)
+    root.addHandler(file_handler)
 
 
 async def _init_db(db_path: str) -> tuple:
@@ -99,6 +116,20 @@ async def main_async() -> None:
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+
+    # Telegram "/" commands menu
+    default_commands = [
+        BotCommand(command="start", description="Запуск / приветствие"),
+        BotCommand(command="help", description="Как пользоваться ботом"),
+        BotCommand(command="settings", description="Настройки"),
+        BotCommand(command="privacy", description="Приватность и очистка истории"),
+    ]
+    await bot.set_my_commands(default_commands, scope=BotCommandScopeDefault())
+
+    admin_commands = [*default_commands, BotCommand(command="admin", description="Админ-панель")]
+    for admin_id in settings.admin_id_set():
+        await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=admin_id))
+
     dp = Dispatcher(storage=MemoryStorage())
 
     # Dependencies for handlers (centralized in services)
