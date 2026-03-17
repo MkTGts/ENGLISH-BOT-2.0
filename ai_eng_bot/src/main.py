@@ -10,6 +10,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import ErrorEvent
 
 from ai_eng_bot.src.config import settings
 from ai_eng_bot.src.database.db import create_engine, create_sessionmaker
@@ -122,6 +123,11 @@ async def main_async() -> None:
     dp.include_router(admin.router)
     dp.include_router(commands.router)
     dp.include_router(chat.router)
+
+    @dp.errors()
+    async def on_error(event: ErrorEvent):  # type: ignore[override]
+        logging.getLogger(__name__).exception("Unhandled aiogram error", exc_info=event.exception)
+        return True
 
     stop_event = asyncio.Event()
     bg_task = asyncio.create_task(_background_tasks(session_factory, stop_event))

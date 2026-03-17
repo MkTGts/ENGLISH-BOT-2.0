@@ -77,7 +77,11 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
     user = await repo.get_user(user_id=user_id)
     if user is not None and not user.is_active:
         logger.info("user_blocked", extra=log_extra)
-        return await message.answer("Доступ к боту ограничен. Если это ошибка — напишите в поддержку.")
+        try:
+            return await message.answer("Доступ к боту ограничен. Если это ошибка — напишите в поддержку.")
+        except Exception:  # noqa: BLE001
+            logger.exception("failed_to_send_blocked_message", extra=log_extra)
+            return
 
     # Determine plan & limits (subscription-ready)
     plan = await repo.get_active_plan(user_id=user_id)
@@ -91,14 +95,22 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
             usage.messages_used,
             extra=log_extra,
         )
-        return await message.answer(
-            "Лимит запросов к AI на сегодня исчерпан. Попробуй завтра или оформи подписку (план Pro)."
-        )
+        try:
+            return await message.answer(
+                "Лимит запросов к AI на сегодня исчерпан. Попробуй завтра или оформи подписку (план Pro)."
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("failed_to_send_limit_message", extra=log_extra)
+            return
     if usage.tokens_used >= limits.max_tokens_per_day:
         logger.info("limit_exceeded tokens_per_day plan=%s used=%s", plan, usage.tokens_used, extra=log_extra)
-        return await message.answer(
-            "Лимит токенов на сегодня исчерпан. Попробуй завтра или оформи подписку (план Pro)."
-        )
+        try:
+            return await message.answer(
+                "Лимит токенов на сегодня исчерпан. Попробуй завтра или оформи подписку (план Pro)."
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("failed_to_send_limit_message", extra=log_extra)
+            return
 
     # Store user message
     user_msg = await repo.add_message(
@@ -118,10 +130,18 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
             result = await ai_engine.chat_json(system_prompt=system_prompt_ru(), messages=llm_messages)
         except LlmError as e:
             logger.exception("LLM error: %s", e, extra=log_extra)
-            return await message.answer("Похоже, сейчас AI недоступен. Попробуй чуть позже.")
+            try:
+                return await message.answer("Похоже, сейчас AI недоступен. Попробуй чуть позже.")
+            except Exception:  # noqa: BLE001
+                logger.exception("failed_to_send_llm_error_message", extra=log_extra)
+                return
         except Exception as e:  # noqa: BLE001
             logger.exception("Unexpected error: %s", e, extra=log_extra)
-            return await message.answer("Произошла ошибка. Попробуй ещё раз.")
+            try:
+                return await message.answer("Произошла ошибка. Попробуй ещё раз.")
+            except Exception:  # noqa: BLE001
+                logger.exception("failed_to_send_generic_error_message", extra=log_extra)
+                return
 
     logger.info("llm_ok latency_ms=%s plan=%s", result.latency_ms, plan, extra=log_extra)
 
@@ -163,5 +183,8 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
         [c.model_dump() for c in result.parsed.corrections],
         result.parsed.follow_up_question,
     )
-    await message.answer(text)
+    try:
+        await message.answer(text)
+    except Exception:  # noqa: BLE001
+        logger.exception("failed_to_send_reply", extra=log_extra)
 
