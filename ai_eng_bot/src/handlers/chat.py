@@ -41,7 +41,8 @@ async def typing_indicator(message: Message):
     finally:
         stop.set()
         task.cancel()
-        with contextlib.suppress(Exception):
+        # Task cancellation must never break the handler.
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await task
 
 
@@ -199,8 +200,4 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
         except Exception:  # noqa: BLE001
             logger.exception("failed_to_send_fallback_after_crash", extra=log_extra)
             return
-    except BaseException:  # noqa: BLE001
-        # Log cancellations and other non-Exception failures.
-        logger.exception("chat_handler_base_exception", extra=log_extra)
-        raise
 
