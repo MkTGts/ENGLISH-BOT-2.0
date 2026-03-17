@@ -15,6 +15,42 @@ class LlmError(RuntimeError):
     pass
 
 
+def _normalize_llm_json(obj: object) -> dict:
+    """
+    Timeweb/OpenAI-compatible models sometimes return slightly different key names.
+    We normalize them to our internal contract:
+      - reply_text
+      - corrections
+      - follow_up_question
+    """
+    if not isinstance(obj, dict):
+        raise LlmError("Model JSON is not an object")
+
+    d = dict(obj)
+
+    # Main reply
+    if "reply_text" not in d:
+        for alt in ("response", "reply", "answer", "text", "message"):
+            if alt in d and isinstance(d[alt], str):
+                d["reply_text"] = d[alt]
+                break
+
+    # Corrections
+    if "corrections" not in d or d["corrections"] is None:
+        d["corrections"] = []
+    if isinstance(d.get("corrections"), dict):
+        d["corrections"] = [d["corrections"]]
+
+    # Follow-up question
+    if "follow_up_question" not in d:
+        for alt in ("followup_question", "followup", "question", "next_question"):
+            if alt in d and isinstance(d[alt], str):
+                d["follow_up_question"] = d[alt]
+                break
+
+    return d
+
+
 def _extract_json(text: str) -> str:
     text = text.strip()
     if text.startswith("{") and text.endswith("}"):
@@ -125,6 +161,7 @@ class AiEngine:
             try:
                 json_str = _extract_json(raw_text)
                 parsed_obj = json.loads(json_str)
+                parsed_obj = _normalize_llm_json(parsed_obj)
                 parsed = LlmResponse.model_validate(parsed_obj)
             except Exception as e:  # noqa: BLE001
                 # If json_mode is off or provider ignored it, allow retries on invalid JSON
