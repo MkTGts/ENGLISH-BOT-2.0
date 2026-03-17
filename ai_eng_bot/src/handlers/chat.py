@@ -130,6 +130,7 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
         async with typing_indicator(message):
             try:
                 result = await ai_engine.chat_json(system_prompt=system_prompt_ru(), messages=llm_messages)
+                logger.info("llm_returned", extra=log_extra)
             except LlmError as e:
                 logger.exception("LLM error: %s", e, extra=log_extra)
                 try:
@@ -144,6 +145,9 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
                 except Exception:  # noqa: BLE001
                     logger.exception("failed_to_send_generic_error_message", extra=log_extra)
                     return
+            except asyncio.CancelledError:
+                logger.exception("llm_call_cancelled", extra=log_extra)
+                raise
 
         logger.info("llm_ok latency_ms=%s plan=%s", result.latency_ms, plan, extra=log_extra)
 
@@ -195,4 +199,8 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
         except Exception:  # noqa: BLE001
             logger.exception("failed_to_send_fallback_after_crash", extra=log_extra)
             return
+    except BaseException:  # noqa: BLE001
+        # Log cancellations and other non-Exception failures.
+        logger.exception("chat_handler_base_exception", extra=log_extra)
+        raise
 
