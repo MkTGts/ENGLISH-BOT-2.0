@@ -10,7 +10,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ErrorEvent
+from aiogram.types import ErrorEvent, Update
 
 from ai_eng_bot.src.config import settings
 from ai_eng_bot.src.database.db import create_engine, create_sessionmaker
@@ -126,8 +126,14 @@ async def main_async() -> None:
 
     @dp.errors()
     async def on_error(event: ErrorEvent):  # type: ignore[override]
-        logging.getLogger(__name__).exception("Unhandled aiogram error", exc_info=event.exception)
+        logging.getLogger(__name__).exception("Unhandled aiogram error: %r", event.exception)
         return True
+
+    @dp.update()
+    async def catch_all_update(update: Update):  # type: ignore[override]
+        # If we ever see "Update is not handled", this ensures we log the raw update type.
+        logging.getLogger(__name__).info("update_catch_all type=%s", type(update).__name__)
+        return
 
     stop_event = asyncio.Event()
     bg_task = asyncio.create_task(_background_tasks(session_factory, stop_event))

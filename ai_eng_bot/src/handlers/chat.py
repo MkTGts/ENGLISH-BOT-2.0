@@ -73,6 +73,7 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
     chat_id = int(message.chat.id)
 
     log_extra = {"user_id": user_id, "chat_id": chat_id}
+    logger.info("chat_received text_len=%s", len(message.text), extra=log_extra)
 
     user = await repo.get_user(user_id=user_id)
     if user is not None and not user.is_active:
@@ -185,6 +186,7 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
     )
     try:
         await message.answer(text)
+        logger.info("reply_sent chars=%s", len(text), extra=log_extra)
     except Exception:  # noqa: BLE001
         logger.exception("failed_to_send_reply", extra=log_extra)
 
