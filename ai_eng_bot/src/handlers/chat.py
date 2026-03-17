@@ -75,118 +75,124 @@ async def chat_handler(message: Message, db_session, ai_engine: AiEngine):
     log_extra = {"user_id": user_id, "chat_id": chat_id}
     logger.info("chat_received text_len=%s", len(message.text), extra=log_extra)
 
-    user = await repo.get_user(user_id=user_id)
-    if user is not None and not user.is_active:
-        logger.info("user_blocked", extra=log_extra)
-        try:
-            return await message.answer("Доступ к боту ограничен. Если это ошибка — напишите в поддержку.")
-        except Exception:  # noqa: BLE001
-            logger.exception("failed_to_send_blocked_message", extra=log_extra)
-            return
+    try:
+        user = await repo.get_user(user_id=user_id)
+        if user is not None and not user.is_active:
+            logger.info("user_blocked", extra=log_extra)
+            try:
+                return await message.answer("Доступ к боту ограничен. Если это ошибка — напишите в поддержку.")
+            except Exception:  # noqa: BLE001
+                logger.exception("failed_to_send_blocked_message", extra=log_extra)
+                return
 
-    # Determine plan & limits (subscription-ready)
-    plan = await repo.get_active_plan(user_id=user_id)
-    limits = DEFAULT_PLANS.get(plan, DEFAULT_PLANS["free"])
+        # Determine plan & limits (subscription-ready)
+        plan = await repo.get_active_plan(user_id=user_id)
+        limits = DEFAULT_PLANS.get(plan, DEFAULT_PLANS["free"])
 
-    usage = await repo.get_or_create_daily_usage(user_id=user_id)
-    if usage.messages_used >= limits.max_messages_per_day:
-        logger.info(
-            "limit_exceeded llm_requests_per_day plan=%s used=%s",
-            plan,
-            usage.messages_used,
-            extra=log_extra,
+        usage = await repo.get_or_create_daily_usage(user_id=user_id)
+        if usage.messages_used >= limits.max_messages_per_day:
+            logger.info(
+                "limit_exceeded llm_requests_per_day plan=%s used=%s",
+                plan,
+                usage.messages_used,
+                extra=log_extra,
+            )
+            try:
+                return await message.answer(
+                    "Лимит запросов к AI на сегодня исчерпан. Попробуй завтра или оформи подписку (план Pro)."
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("failed_to_send_limit_message", extra=log_extra)
+                return
+        if usage.tokens_used >= limits.max_tokens_per_day:
+            logger.info("limit_exceeded tokens_per_day plan=%s used=%s", plan, usage.tokens_used, extra=log_extra)
+            try:
+                return await message.answer(
+                    "Лимит токенов на сегодня исчерпан. Попробуй завтра или оформи подписку (план Pro)."
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("failed_to_send_limit_message", extra=log_extra)
+                return
+
+        # Store user message
+        user_msg = await repo.add_message(
+            user_id=user_id,
+            chat_id=chat_id,
+            telegram_message_id=message.message_id,
+            role="user",
+            content=message.text,
+        )
+
+        ctx_limit = min(settings.llm_context_messages, limits.max_context_messages)
+        history = await repo.recent_messages(user_id=user_id, limit=ctx_limit)
+        llm_messages = [{"role": m.role, "content": m.content} for m in history]
+
+        async with typing_indicator(message):
+            try:
+                result = await ai_engine.chat_json(system_prompt=system_prompt_ru(), messages=llm_messages)
+            except LlmError as e:
+                logger.exception("LLM error: %s", e, extra=log_extra)
+                try:
+                    return await message.answer("Похоже, сейчас AI недоступен. Попробуй чуть позже.")
+                except Exception:  # noqa: BLE001
+                    logger.exception("failed_to_send_llm_error_message", extra=log_extra)
+                    return
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Unexpected error: %s", e, extra=log_extra)
+                try:
+                    return await message.answer("Произошла ошибка. Попробуй ещё раз.")
+                except Exception:  # noqa: BLE001
+                    logger.exception("failed_to_send_generic_error_message", extra=log_extra)
+                    return
+
+        logger.info("llm_ok latency_ms=%s plan=%s", result.latency_ms, plan, extra=log_extra)
+
+        # Persist assistant message (+ usage/latency in metadata)
+        meta = {"latency_ms": result.latency_ms, "model": settings.ai_model}
+        await repo.add_message(
+            user_id=user_id,
+            chat_id=chat_id,
+            telegram_message_id=None,
+            role="assistant",
+            content=result.parsed.reply_text,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            metadata=meta,
+        )
+
+        used_tokens = int(result.tokens_in or 0) + int(result.tokens_out or 0)
+        await repo.increment_daily_usage(usage_id=usage.id, add_messages=1, add_tokens=used_tokens)
+
+        # Persist corrections to ErrorLog (link to user's message)
+        for c in result.parsed.corrections:
+            try:
+                await repo.add_error(
+                    message_id=user_msg.id,
+                    raw_error=c.raw,
+                    correction=c.corrected,
+                    error_type=c.type,
+                    rule_hint=c.explanation,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to store corrections", extra=log_extra)
+
+        # Render message
+        text = _format_reply(
+            result.parsed.reply_text,
+            [c.model_dump() for c in result.parsed.corrections],
+            result.parsed.follow_up_question,
         )
         try:
-            return await message.answer(
-                "Лимит запросов к AI на сегодня исчерпан. Попробуй завтра или оформи подписку (план Pro)."
-            )
+            await message.answer(text)
+            logger.info("reply_sent chars=%s", len(text), extra=log_extra)
         except Exception:  # noqa: BLE001
-            logger.exception("failed_to_send_limit_message", extra=log_extra)
-            return
-    if usage.tokens_used >= limits.max_tokens_per_day:
-        logger.info("limit_exceeded tokens_per_day plan=%s used=%s", plan, usage.tokens_used, extra=log_extra)
-        try:
-            return await message.answer(
-                "Лимит токенов на сегодня исчерпан. Попробуй завтра или оформи подписку (план Pro)."
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("failed_to_send_limit_message", extra=log_extra)
-            return
-
-    # Store user message
-    user_msg = await repo.add_message(
-        user_id=user_id,
-        chat_id=chat_id,
-        telegram_message_id=message.message_id,
-        role="user",
-        content=message.text,
-    )
-
-    ctx_limit = min(settings.llm_context_messages, limits.max_context_messages)
-    history = await repo.recent_messages(user_id=user_id, limit=ctx_limit)
-    llm_messages = [{"role": m.role, "content": m.content} for m in history]
-
-    async with typing_indicator(message):
-        try:
-            result = await ai_engine.chat_json(system_prompt=system_prompt_ru(), messages=llm_messages)
-        except LlmError as e:
-            logger.exception("LLM error: %s", e, extra=log_extra)
-            try:
-                return await message.answer("Похоже, сейчас AI недоступен. Попробуй чуть позже.")
-            except Exception:  # noqa: BLE001
-                logger.exception("failed_to_send_llm_error_message", extra=log_extra)
-                return
-        except Exception as e:  # noqa: BLE001
-            logger.exception("Unexpected error: %s", e, extra=log_extra)
-            try:
-                return await message.answer("Произошла ошибка. Попробуй ещё раз.")
-            except Exception:  # noqa: BLE001
-                logger.exception("failed_to_send_generic_error_message", extra=log_extra)
-                return
-
-    logger.info("llm_ok latency_ms=%s plan=%s", result.latency_ms, plan, extra=log_extra)
-
-    # Persist assistant message (+ usage/latency in metadata)
-    meta = {"latency_ms": result.latency_ms, "model": settings.ai_model}
-    await repo.add_message(
-        user_id=user_id,
-        chat_id=chat_id,
-        telegram_message_id=None,
-        role="assistant",
-        content=result.parsed.reply_text,
-        tokens_in=result.tokens_in,
-        tokens_out=result.tokens_out,
-        metadata=meta,
-    )
-
-    used_tokens = int(result.tokens_in or 0) + int(result.tokens_out or 0)
-    # Business usage accounting:
-    # - increment LLM request count only for successful model calls
-    # - increment tokens based on provider usage or estimation from AiEngine
-    await repo.increment_daily_usage(usage_id=usage.id, add_messages=1, add_tokens=used_tokens)
-
-    # Persist corrections to ErrorLog (link to user's message)
-    for c in result.parsed.corrections:
-        try:
-            await repo.add_error(
-                message_id=user_msg.id,
-                raw_error=c.raw,
-                correction=c.corrected,
-                error_type=c.type,
-                rule_hint=c.explanation,
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to store corrections", extra=log_extra)
-
-    # Render message
-    text = _format_reply(
-        result.parsed.reply_text,
-        [c.model_dump() for c in result.parsed.corrections],
-        result.parsed.follow_up_question,
-    )
-    try:
-        await message.answer(text)
-        logger.info("reply_sent chars=%s", len(text), extra=log_extra)
+            logger.exception("failed_to_send_reply", extra=log_extra)
     except Exception:  # noqa: BLE001
-        logger.exception("failed_to_send_reply", extra=log_extra)
+        # This catches DB errors and any post-LLM errors that previously killed the handler silently.
+        logger.exception("chat_handler_failed", extra=log_extra)
+        try:
+            await message.answer("Произошла ошибка на сервере. Попробуй ещё раз чуть позже.")
+        except Exception:  # noqa: BLE001
+            logger.exception("failed_to_send_fallback_after_crash", extra=log_extra)
+            return
 

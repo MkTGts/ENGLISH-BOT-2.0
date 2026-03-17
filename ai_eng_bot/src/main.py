@@ -126,7 +126,7 @@ async def main_async() -> None:
 
     @dp.errors()
     async def on_error(event: ErrorEvent):  # type: ignore[override]
-        logging.getLogger(__name__).exception("Unhandled aiogram error: %r", event.exception)
+        logging.getLogger(__name__).error("Unhandled aiogram error: %r", event.exception, exc_info=event.exception)
         return True
 
     @dp.update()
