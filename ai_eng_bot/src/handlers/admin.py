@@ -10,6 +10,7 @@ from aiogram import Router
 from ai_eng_bot.src.config import settings
 from ai_eng_bot.src.database.repository import Repository
 from ai_eng_bot.src.filters.admin import IsAdmin
+from ai_eng_bot.src.handlers.menu import main_menu
 from ai_eng_bot.src.services.prompt_store import load_prompt, save_prompt
 
 router = Router()
@@ -71,7 +72,7 @@ async def admin_dispatch(message: Message, db_session):
     if cmd == "sub":
         return await admin_sub(message, db_session, tail)
 
-    await message.answer("Неизвестная admin-команда.\n\n" + _help_text())
+    await message.answer("Неизвестная admin-команда.\n\n" + _help_text(), reply_markup=main_menu(is_admin=True))
 
 
 async def admin_status(message: Message):
@@ -85,6 +86,8 @@ async def admin_status(message: Message):
         f"- LLM_JSON_MODE: {settings.llm_json_mode}\n"
         f"- RATE_LIMIT: {settings.rate_limit_max_messages}/{settings.rate_limit_window_s}s\n"
         f"- ADMIN_IDS: {admins}\n"
+        ,
+        reply_markup=main_menu(is_admin=True),
     )
 
 
@@ -99,6 +102,8 @@ async def admin_stats(message: Message, db_session):
         f"- messages: {msgs}\n"
         f"- errors: {errs}\n"
         f"- updated: {datetime.utcnow().isoformat()}Z\n"
+        ,
+        reply_markup=main_menu(is_admin=True),
     )
 
 
@@ -106,7 +111,7 @@ async def admin_user(message: Message, db_session, tail: str):
     repo = Repository(db_session)
     q = tail.strip()
     if not q:
-        return await message.answer("Usage: /admin user <id|@username>")
+        return await message.answer("Usage: /admin user <id|@username>", reply_markup=main_menu(is_admin=True))
 
     user = None
     if q.startswith("@"):
@@ -118,7 +123,7 @@ async def admin_user(message: Message, db_session, tail: str):
             user = None
 
     if user is None:
-        return await message.answer("Пользователь не найден.")
+        return await message.answer("Пользователь не найден.", reply_markup=main_menu(is_admin=True))
 
     plan = await repo.get_active_plan(user_id=int(user.id))
     usage = await repo.get_or_create_daily_usage(user_id=int(user.id))
@@ -132,17 +137,19 @@ async def admin_user(message: Message, db_session, tail: str):
         f"- usage_today: llm_requests={usage.messages_used}, tokens={usage.tokens_used}\n"
         f"- created_at: {user.created_at}\n"
         f"- updated_at: {user.updated_at}\n"
+        ,
+        reply_markup=main_menu(is_admin=True),
     )
 
 
 async def admin_ban(message: Message, db_session, tail: str, ban: bool):
     q = tail.strip()
     if not q:
-        return await message.answer("Usage: /admin ban <id>  |  /admin unban <id>")
+        return await message.answer("Usage: /admin ban <id>  |  /admin unban <id>", reply_markup=main_menu(is_admin=True))
     try:
         user_id = int(q)
     except ValueError:
-        return await message.answer("ID должен быть числом.")
+        return await message.answer("ID должен быть числом.", reply_markup=main_menu(is_admin=True))
 
     repo = Repository(db_session)
     ok = await repo.set_user_active(user_id=user_id, is_active=(not ban))
@@ -153,8 +160,8 @@ async def admin_ban(message: Message, db_session, tail: str, ban: bool):
         extra={"user_id": int(message.from_user.id) if message.from_user else "-", "chat_id": int(message.chat.id)},
     )
     if not ok:
-        return await message.answer("Пользователь не найден.")
-    await message.answer("Готово.")
+        return await message.answer("Пользователь не найден.", reply_markup=main_menu(is_admin=True))
+    await message.answer("Готово.", reply_markup=main_menu(is_admin=True))
 
 
 async def admin_cleanup(message: Message, db_session):
@@ -165,13 +172,13 @@ async def admin_cleanup(message: Message, db_session):
         deleted,
         extra={"user_id": int(message.from_user.id) if message.from_user else "-", "chat_id": int(message.chat.id)},
     )
-    await message.answer(f"Cleanup done. Deleted messages: {deleted}")
+    await message.answer(f"Cleanup done. Deleted messages: {deleted}", reply_markup=main_menu(is_admin=True))
 
 
 async def admin_broadcast(message: Message, db_session, tail: str):
     text = tail.strip()
     if not text:
-        return await message.answer("Usage: /admin broadcast <text>")
+        return await message.answer("Usage: /admin broadcast <text>", reply_markup=main_menu(is_admin=True))
 
     repo = Repository(db_session)
     user_ids = await repo.list_active_user_ids(limit=10000)
@@ -191,7 +198,7 @@ async def admin_broadcast(message: Message, db_session, tail: str):
         fail,
         extra={"user_id": int(message.from_user.id) if message.from_user else "-", "chat_id": int(message.chat.id)},
     )
-    await message.answer(f"Broadcast finished. ok={ok}, fail={fail}")
+    await message.answer(f"Broadcast finished. ok={ok}, fail={fail}", reply_markup=main_menu(is_admin=True))
 
 
 async def admin_prompt(message: Message, tail: str):
@@ -199,44 +206,44 @@ async def admin_prompt(message: Message, tail: str):
     if not sub or sub == "show":
         current = load_prompt()
         if not current:
-            return await message.answer("Prompt не задан (используется дефолтный).")
-        return await message.answer("Current prompt:\n\n" + current)
+            return await message.answer("Prompt не задан (используется дефолтный).", reply_markup=main_menu(is_admin=True))
+        return await message.answer("Current prompt:\n\n" + current, reply_markup=main_menu(is_admin=True))
 
     if sub.startswith("set "):
         new_text = sub[len("set ") :].strip()
         if not new_text:
-            return await message.answer("Usage: /admin prompt set <text>")
+            return await message.answer("Usage: /admin prompt set <text>", reply_markup=main_menu(is_admin=True))
         save_prompt(new_text)
         logger.info(
             "admin_action prompt_set",
             extra={"user_id": int(message.from_user.id) if message.from_user else "-", "chat_id": int(message.chat.id)},
         )
-        return await message.answer("Prompt сохранён.")
+        return await message.answer("Prompt сохранён.", reply_markup=main_menu(is_admin=True))
 
-    await message.answer("Usage:\n/admin prompt show\n/admin prompt set <text>")
+    await message.answer("Usage:\n/admin prompt show\n/admin prompt set <text>", reply_markup=main_menu(is_admin=True))
 
 
 async def admin_sub(message: Message, db_session, tail: str):
     repo = Repository(db_session)
     parts = tail.split()
     if not parts:
-        return await message.answer("Usage: /admin sub grant|revoke|expiring ...")
+        return await message.answer("Usage: /admin sub grant|revoke|expiring ...", reply_markup=main_menu(is_admin=True))
 
     action = parts[0]
     if action == "grant":
         if len(parts) < 3:
-            return await message.answer("Usage: /admin sub grant <id> <free|pro> [days]")
+            return await message.answer("Usage: /admin sub grant <id> <free|pro> [days]", reply_markup=main_menu(is_admin=True))
         try:
             user_id = int(parts[1])
         except ValueError:
-            return await message.answer("ID должен быть числом.")
+            return await message.answer("ID должен быть числом.", reply_markup=main_menu(is_admin=True))
         plan = parts[2]
         days = None
         if len(parts) >= 4:
             try:
                 days = int(parts[3])
             except ValueError:
-                return await message.answer("days должен быть числом.")
+                return await message.answer("days должен быть числом.", reply_markup=main_menu(is_admin=True))
         await repo.set_user_plan(user_id=user_id, plan=plan, days=days)
         logger.info(
             "admin_action sub_grant target=%s plan=%s days=%s",
@@ -245,15 +252,15 @@ async def admin_sub(message: Message, db_session, tail: str):
             days,
             extra={"user_id": int(message.from_user.id) if message.from_user else "-", "chat_id": int(message.chat.id)},
         )
-        return await message.answer("Подписка выдана.")
+        return await message.answer("Подписка выдана.", reply_markup=main_menu(is_admin=True))
 
     if action == "revoke":
         if len(parts) < 2:
-            return await message.answer("Usage: /admin sub revoke <id>")
+            return await message.answer("Usage: /admin sub revoke <id>", reply_markup=main_menu(is_admin=True))
         try:
             user_id = int(parts[1])
         except ValueError:
-            return await message.answer("ID должен быть числом.")
+            return await message.answer("ID должен быть числом.", reply_markup=main_menu(is_admin=True))
         n = await repo.revoke_user_plan(user_id=user_id)
         logger.info(
             "admin_action sub_revoke target=%s rows=%s",
@@ -261,22 +268,27 @@ async def admin_sub(message: Message, db_session, tail: str):
             n,
             extra={"user_id": int(message.from_user.id) if message.from_user else "-", "chat_id": int(message.chat.id)},
         )
-        return await message.answer(f"Отменено подписок: {n}")
+        return await message.answer(f"Отменено подписок: {n}", reply_markup=main_menu(is_admin=True))
 
     if action == "expiring":
         if len(parts) < 2:
-            return await message.answer("Usage: /admin sub expiring <days>")
+            return await message.answer("Usage: /admin sub expiring <days>", reply_markup=main_menu(is_admin=True))
         try:
             days = int(parts[1])
         except ValueError:
-            return await message.answer("days должен быть числом.")
+            return await message.answer("days должен быть числом.", reply_markup=main_menu(is_admin=True))
         subs = await repo.expiring_subscriptions(within_days=days)
         if not subs:
-            return await message.answer("Нет истекающих подписок.")
+            return await message.answer("Нет истекающих подписок.", reply_markup=main_menu(is_admin=True))
         lines = ["Expiring subscriptions:"]
         for s in subs:
             lines.append(f"- user_id={s.user_id} plan={s.plan} expires_at={s.expires_at}")
-        return await message.answer("\n".join(lines))
+        return await message.answer("\n".join(lines), reply_markup=main_menu(is_admin=True))
 
-    await message.answer("Usage: /admin sub grant|revoke|expiring ...")
+    await message.answer("Usage: /admin sub grant|revoke|expiring ...", reply_markup=main_menu(is_admin=True))
+
+
+@router.message(lambda m: (m.text or "").strip().lower() == "admin")
+async def menu_admin(message: Message):
+    return await message.answer(_help_text(), reply_markup=main_menu(is_admin=True))
 

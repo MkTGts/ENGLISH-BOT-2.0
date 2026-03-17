@@ -6,21 +6,25 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from ai_eng_bot.src.config import settings
 from ai_eng_bot.src.database.repository import Repository
+from ai_eng_bot.src.handlers.menu import is_admin_user, main_menu
 
 router = Router()
 
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
+    is_admin = is_admin_user(int(message.from_user.id)) if message.from_user else False
     await message.answer(
         "Привет! Я помогу тебе практиковать английский.\n"
         "Пиши сообщение — я отвечу по-английски и дам исправления ошибок отдельно.\n\n"
-        "Команды: /help, /privacy"
+        "Открой меню кнопками ниже.",
+        reply_markup=main_menu(is_admin=is_admin),
     )
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
+    is_admin = is_admin_user(int(message.from_user.id)) if message.from_user else False
     await message.answer(
         "Как пользоваться:\n"
         "- Просто пиши мне на русском/английском.\n"
@@ -28,13 +32,18 @@ async def cmd_help(message: Message):
         "- Исправления (если есть) дам отдельным блоком.\n\n"
         "Команды:\n"
         "/privacy — политика хранения и очистка истории\n"
-        "/settings — настройки (заготовка)"
+        "/settings — настройки (заготовка)",
+        reply_markup=main_menu(is_admin=is_admin),
     )
 
 
 @router.message(Command("settings"))
 async def cmd_settings(message: Message):
-    await message.answer("Настройки будут добавлены позже. Сейчас можно пользоваться чатом и /privacy.")
+    is_admin = is_admin_user(int(message.from_user.id)) if message.from_user else False
+    await message.answer(
+        "Настройки будут добавлены позже. Сейчас можно пользоваться чатом и /privacy.",
+        reply_markup=main_menu(is_admin=is_admin),
+    )
 
 
 def _privacy_kb() -> InlineKeyboardMarkup:
@@ -48,6 +57,7 @@ def _privacy_kb() -> InlineKeyboardMarkup:
 
 @router.message(Command("privacy"))
 async def cmd_privacy(message: Message):
+    is_admin = is_admin_user(int(message.from_user.id)) if message.from_user else False
     await message.answer(
         "Политика хранения:\n"
         f"- История сообщений хранится не дольше {settings.history_ttl_days} дней.\n"
@@ -55,6 +65,27 @@ async def cmd_privacy(message: Message):
         "- В модель отправляется только ограниченный контекст последних сообщений.\n",
         reply_markup=_privacy_kb(),
     )
+
+
+@router.message(F.text.lower() == "help")
+async def menu_help(message: Message):
+    return await cmd_help(message)
+
+
+@router.message(F.text.lower() == "privacy")
+async def menu_privacy(message: Message):
+    return await cmd_privacy(message)
+
+
+@router.message(F.text.lower() == "settings")
+async def menu_settings(message: Message):
+    return await cmd_settings(message)
+
+
+@router.message(F.text.lower() == "chat")
+async def menu_chat(message: Message):
+    is_admin = is_admin_user(int(message.from_user.id)) if message.from_user else False
+    return await message.answer("Ок. Напиши сообщение — я отвечу по‑английски.", reply_markup=main_menu(is_admin=is_admin))
 
 
 @router.callback_query(F.data == "privacy:close")
