@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import csv
+import io
 from datetime import datetime
 
 from aiogram.filters import Command
 from aiogram.types import Message
+from aiogram.types.input_file import BufferedInputFile
 from aiogram import Router
 
 from ai_eng_bot.src.config import settings
@@ -22,18 +25,21 @@ logger = logging.getLogger(__name__)
 def _help_text() -> str:
     return (
         "Admin commands:\n"
-        "/admin status — конфиг/состояние\n"
-        "/admin stats — агрегированная статистика\n"
-        "/admin user [id|@username] — карточка пользователя\n"
-        "/admin ban [id] — заблокировать\n"
-        "/admin unban [id] — разблокировать\n"
-        "/admin sub grant [id] [free|pro] [days] — выдать план\n"
-        "/admin sub revoke [id] — отменить активные подписки\n"
-        "/admin sub expiring [days] — истекающие подписки\n"
-        "/admin cleanup — принудительная TTL-очистка\n"
-        "/admin broadcast [text] — рассылка активным\n"
-        "/admin prompt show — показать текущий prompt\n"
-        "/admin prompt set [text] — установить prompt\n"
+        "/admin_status — конфиг/состояние\n"
+        "/admin_stats — агрегированная статистика\n"
+        "/admin_user [id|@username] — карточка пользователя\n"
+        "/admin_users_list [limit] [offset] — список пользователей (CSV)\n"
+        "/admin_ban [id] — заблокировать\n"
+        "/admin_unban [id] — разблокировать\n"
+        "/admin_sub_grant [id] [free|pro] [days] — выдать план\n"
+        "/admin_sub_revoke [id] — отменить активные подписки\n"
+        "/admin_sub_expiring [days] — истекающие подписки\n"
+        "/admin_cleanup — принудительная TTL-очистка\n"
+        "/admin_broadcast [text] — рассылка активным\n"
+        "/admin_prompt_show — показать текущий prompt\n"
+        "/admin_prompt_set [text] — установить prompt\n"
+        "\n"
+        "Старый формат (/admin sub grant ...) поддерживается, но не рекомендуется.\n"
     )
 
 
@@ -48,7 +54,7 @@ def _args(message: Message) -> str:
 async def admin_dispatch(message: Message, db_session):
     text = _args(message).strip()
     if not text or text in ("help", "-h", "--help"):
-        return await message.answer(_help_text())
+        return await message.answer(_help_text(), reply_markup=main_menu(is_admin=True))
 
     cmd, *rest = text.split(maxsplit=1)
     tail = rest[0] if rest else ""
@@ -73,6 +79,149 @@ async def admin_dispatch(message: Message, db_session):
         return await admin_sub(message, db_session, tail)
 
     await message.answer("Неизвестная admin-команда.\n\n" + _help_text(), reply_markup=main_menu(is_admin=True))
+
+
+def _tail_after_command(message: Message) -> str:
+    if not message.text:
+        return ""
+    parts = message.text.split(maxsplit=1)
+    return parts[1] if len(parts) > 1 else ""
+
+
+@router.message(Command("admin_status"))
+async def admin_status_cmd(message: Message):
+    return await admin_status(message)
+
+
+@router.message(Command("admin_stats"))
+async def admin_stats_cmd(message: Message, db_session):
+    return await admin_stats(message, db_session)
+
+
+@router.message(Command("admin_user"))
+async def admin_user_cmd(message: Message, db_session):
+    return await admin_user(message, db_session, _tail_after_command(message))
+
+
+@router.message(Command("admin_users_list"))
+async def admin_users_list_cmd(message: Message, db_session):
+    tail = _tail_after_command(message).strip()
+    limit = 200
+    offset = 0
+    if tail:
+        parts = tail.split()
+        if len(parts) >= 1:
+            try:
+                limit = int(parts[0])
+            except ValueError:
+                limit = 200
+        if len(parts) >= 2:
+            try:
+                offset = int(parts[1])
+            except ValueError:
+                offset = 0
+
+    limit = max(1, min(limit, 2000))
+    offset = max(0, offset)
+
+    repo = Repository(db_session)
+    rows = await repo.users_usage_report(limit=limit, offset=offset)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "username",
+            "tg_id",
+            "registered_at",
+            "plan",
+            "total_messages",
+            "total_tokens",
+            "month_messages",
+            "month_tokens",
+            "week_messages",
+            "week_tokens",
+            "day_messages",
+            "day_tokens",
+        ]
+    )
+    for r in rows:
+        writer.writerow(
+            [
+                r["username"],
+                r["user_id"],
+                r["registered_at"].isoformat(),
+                r["plan"],
+                r["total_messages"],
+                r["total_tokens"],
+                r["month_messages"],
+                r["month_tokens"],
+                r["week_messages"],
+                r["week_tokens"],
+                r["day_messages"],
+                r["day_tokens"],
+            ]
+        )
+
+    data = output.getvalue().encode("utf-8")
+    filename = f"users_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}Z.csv"
+
+    await message.answer(
+        f"Готово. Пользователей в отчёте: {len(rows)} (limit={limit}, offset={offset}).",
+        reply_markup=main_menu(is_admin=True),
+    )
+    await message.answer_document(
+        BufferedInputFile(data, filename=filename),
+        caption="Users report (CSV)",
+        reply_markup=main_menu(is_admin=True),
+    )
+
+
+@router.message(Command("admin_ban"))
+async def admin_ban_cmd(message: Message, db_session):
+    return await admin_ban(message, db_session, _tail_after_command(message), True)
+
+
+@router.message(Command("admin_unban"))
+async def admin_unban_cmd(message: Message, db_session):
+    return await admin_ban(message, db_session, _tail_after_command(message), False)
+
+
+@router.message(Command("admin_cleanup"))
+async def admin_cleanup_cmd(message: Message, db_session):
+    return await admin_cleanup(message, db_session)
+
+
+@router.message(Command("admin_broadcast"))
+async def admin_broadcast_cmd(message: Message, db_session):
+    return await admin_broadcast(message, db_session, _tail_after_command(message))
+
+
+@router.message(Command("admin_prompt_show"))
+async def admin_prompt_show_cmd(message: Message):
+    return await admin_prompt(message, "show")
+
+
+@router.message(Command("admin_prompt_set"))
+async def admin_prompt_set_cmd(message: Message):
+    text = _tail_after_command(message)
+    return await admin_prompt(message, f"set {text}".strip())
+
+
+@router.message(Command("admin_sub_grant"))
+async def admin_sub_grant_cmd(message: Message, db_session):
+    # /admin_sub_grant <id> <plan> [days]
+    return await admin_sub(message, db_session, "grant " + _tail_after_command(message))
+
+
+@router.message(Command("admin_sub_revoke"))
+async def admin_sub_revoke_cmd(message: Message, db_session):
+    return await admin_sub(message, db_session, "revoke " + _tail_after_command(message))
+
+
+@router.message(Command("admin_sub_expiring"))
+async def admin_sub_expiring_cmd(message: Message, db_session):
+    return await admin_sub(message, db_session, "expiring " + _tail_after_command(message))
 
 
 async def admin_status(message: Message):

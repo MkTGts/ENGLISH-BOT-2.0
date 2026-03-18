@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_eng_bot.src.database.models import ErrorLog, MessageHistory, Subscription, Usage, User
@@ -258,4 +258,123 @@ class Repository:
         q = select(User.id).where(User.is_active == True).limit(limit)  # noqa: E712
         res = await self.session.execute(q)
         return [int(x) for x in res.scalars().all()]
+
+    async def list_users(self, *, limit: int = 200, offset: int = 0) -> list[User]:
+        q = select(User).order_by(User.created_at.desc()).offset(offset).limit(limit)
+        res = await self.session.execute(q)
+        return list(res.scalars().all())
+
+    async def active_plans_for_users(self, *, user_ids: list[int], now: datetime | None = None) -> dict[int, str]:
+        if not user_ids:
+            return {}
+        now = now or datetime.utcnow()
+        q = (
+            select(Subscription.user_id, Subscription.plan, Subscription.id)
+            .where(
+                Subscription.user_id.in_(user_ids),
+                Subscription.status == "active",
+                or_(Subscription.expires_at.is_(None), Subscription.expires_at > now),
+            )
+            .order_by(Subscription.user_id.asc(), Subscription.id.desc())
+        )
+        res = await self.session.execute(q)
+        out: dict[int, str] = {}
+        for user_id, plan, _sid in res.all():
+            uid = int(user_id)
+            if uid not in out:
+                out[uid] = str(plan)
+        return out
+
+    async def _aggregate_message_and_tokens(
+        self,
+        *,
+        user_ids: list[int],
+        since: datetime | None,
+    ) -> dict[int, tuple[int, int]]:
+        if not user_ids:
+            return {}
+        tokens_expr = func.coalesce(MessageHistory.tokens_in, 0) + func.coalesce(MessageHistory.tokens_out, 0)
+        msg_count_expr = func.sum(case((MessageHistory.role == "user", 1), else_=0))
+        tokens_sum_expr = func.sum(case((MessageHistory.role == "assistant", tokens_expr), else_=0))
+
+        q = select(
+            MessageHistory.user_id,
+            func.coalesce(msg_count_expr, 0).label("msg_count"),
+            func.coalesce(tokens_sum_expr, 0).label("tokens_sum"),
+        ).where(MessageHistory.user_id.in_(user_ids))
+
+        if since is not None:
+            q = q.where(MessageHistory.timestamp >= since)
+
+        q = q.group_by(MessageHistory.user_id)
+
+        res = await self.session.execute(q)
+        out: dict[int, tuple[int, int]] = {}
+        for uid, msg_count, tokens_sum in res.all():
+            out[int(uid)] = (int(msg_count or 0), int(tokens_sum or 0))
+        return out
+
+    async def users_usage_report(self, *, limit: int = 200, offset: int = 0) -> list[dict]:
+        users = await self.list_users(limit=limit, offset=offset)
+        user_ids = [int(u.id) for u in users]
+        now = datetime.utcnow()
+
+        plans = await self.active_plans_for_users(user_ids=user_ids, now=now)
+
+        day_since = now - timedelta(days=1)
+        week_since = now - timedelta(days=7)
+        month_since = now - timedelta(days=30)
+
+        totals = await self._aggregate_message_and_tokens(user_ids=user_ids, since=None)
+        month = await self._aggregate_message_and_tokens(user_ids=user_ids, since=month_since)
+        week = await self._aggregate_message_and_tokens(user_ids=user_ids, since=week_since)
+        day = await self._aggregate_message_and_tokens(user_ids=user_ids, since=day_since)
+
+        report: list[dict] = []
+        for u in users:
+            uid = int(u.id)
+            total_m, total_t = totals.get(uid, (0, 0))
+            month_m, month_t = month.get(uid, (0, 0))
+            week_m, week_t = week.get(uid, (0, 0))
+            day_m, day_t = day.get(uid, (0, 0))
+            report.append(
+                {
+                    "username": f"@{u.username}" if u.username else "",
+                    "user_id": uid,
+                    "registered_at": u.created_at,
+                    "plan": plans.get(uid, "free"),
+                    "total_messages": total_m,
+                    "total_tokens": total_t,
+                    "month_messages": month_m,
+                    "month_tokens": month_t,
+                    "week_messages": week_m,
+                    "week_tokens": week_t,
+                    "day_messages": day_m,
+                    "day_tokens": day_t,
+                }
+            )
+        return report
+
+    async def user_personal_stats(self, *, user_id: int) -> dict | None:
+        user = await self.get_user(user_id=user_id)
+        if user is None:
+            return None
+
+        now = datetime.utcnow()
+        plan = await self.get_active_plan(user_id=user_id, now=now)
+
+        totals = await self._aggregate_message_and_tokens(user_ids=[user_id], since=None)
+        day = await self._aggregate_message_and_tokens(user_ids=[user_id], since=now - timedelta(days=1))
+
+        total_m, total_t = totals.get(user_id, (0, 0))
+        day_m, day_t = day.get(user_id, (0, 0))
+
+        return {
+            "registered_at": user.created_at,
+            "plan": plan,
+            "total_messages": total_m,
+            "total_tokens": total_t,
+            "day_messages": day_m,
+            "day_tokens": day_t,
+        }
 

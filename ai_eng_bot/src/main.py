@@ -123,10 +123,27 @@ async def main_async() -> None:
         BotCommand(command="help", description="Как пользоваться ботом"),
         BotCommand(command="settings", description="Настройки"),
         BotCommand(command="privacy", description="Приватность и очистка истории"),
+        BotCommand(command="my_stats", description="Моя статистика"),
     ]
     await bot.set_my_commands(default_commands, scope=BotCommandScopeDefault())
 
-    admin_commands = [*default_commands, BotCommand(command="admin", description="Админ-панель")]
+    admin_commands = [
+        *default_commands,
+        BotCommand(command="admin", description="Справка админ-команд (legacy)"),
+        BotCommand(command="admin_status", description="Админ: статус"),
+        BotCommand(command="admin_stats", description="Админ: статистика"),
+        BotCommand(command="admin_user", description="Админ: пользователь"),
+        BotCommand(command="admin_users_list", description="Админ: список пользователей (CSV)"),
+        BotCommand(command="admin_ban", description="Админ: бан"),
+        BotCommand(command="admin_unban", description="Админ: разбан"),
+        BotCommand(command="admin_sub_grant", description="Админ: выдать план"),
+        BotCommand(command="admin_sub_revoke", description="Админ: отменить план"),
+        BotCommand(command="admin_sub_expiring", description="Админ: истекающие"),
+        BotCommand(command="admin_cleanup", description="Админ: TTL cleanup"),
+        BotCommand(command="admin_broadcast", description="Админ: рассылка"),
+        BotCommand(command="admin_prompt_show", description="Админ: показать prompt"),
+        BotCommand(command="admin_prompt_set", description="Админ: установить prompt"),
+    ]
     for admin_id in settings.admin_id_set():
         await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=admin_id))
 

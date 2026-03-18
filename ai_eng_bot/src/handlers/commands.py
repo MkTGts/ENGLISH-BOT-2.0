@@ -46,6 +46,28 @@ async def cmd_settings(message: Message):
     )
 
 
+@router.message(Command("my_stats"))
+async def cmd_my_stats(message: Message, db_session):
+    if message.from_user is None:
+        return
+    is_admin = is_admin_user(int(message.from_user.id))
+    repo = Repository(db_session)
+    stats = await repo.user_personal_stats(user_id=int(message.from_user.id))
+    if stats is None:
+        return await message.answer("Не смог найти ваш профиль в базе.", reply_markup=main_menu(is_admin=is_admin))
+
+    await message.answer(
+        "Ваша статистика:\n"
+        f"- дата регистрации: {stats['registered_at']}\n"
+        f"- тарифный план: {stats['plan']}\n"
+        f"- за всё время сообщений: {stats['total_messages']}\n"
+        f"- за всё время токенов: {stats['total_tokens']}\n"
+        f"- за день сообщений: {stats['day_messages']}\n"
+        f"- за день токенов: {stats['day_tokens']}\n",
+        reply_markup=main_menu(is_admin=is_admin),
+    )
+
+
 def _privacy_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
