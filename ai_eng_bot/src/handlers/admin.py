@@ -24,16 +24,16 @@ def _help_text() -> str:
         "Admin commands:\n"
         "/admin status — конфиг/состояние\n"
         "/admin stats — агрегированная статистика\n"
-        "/admin user <id|@username> — карточка пользователя\n"
-        "/admin ban <id> — заблокировать\n"
-        "/admin unban <id> — разблокировать\n"
-        "/admin sub grant <id> <free|pro> [days] — выдать план\n"
-        "/admin sub revoke <id> — отменить активные подписки\n"
-        "/admin sub expiring <days> — истекающие подписки\n"
+        "/admin user [id|@username] — карточка пользователя\n"
+        "/admin ban [id] — заблокировать\n"
+        "/admin unban [id] — разблокировать\n"
+        "/admin sub grant [id] [free|pro] [days] — выдать план\n"
+        "/admin sub revoke [id] — отменить активные подписки\n"
+        "/admin sub expiring [days] — истекающие подписки\n"
         "/admin cleanup — принудительная TTL-очистка\n"
-        "/admin broadcast <text> — рассылка активным\n"
+        "/admin broadcast [text] — рассылка активным\n"
         "/admin prompt show — показать текущий prompt\n"
-        "/admin prompt set <text> — установить prompt\n"
+        "/admin prompt set [text] — установить prompt\n"
     )
 
 
@@ -111,7 +111,7 @@ async def admin_user(message: Message, db_session, tail: str):
     repo = Repository(db_session)
     q = tail.strip()
     if not q:
-        return await message.answer("Usage: /admin user <id|@username>", reply_markup=main_menu(is_admin=True))
+        return await message.answer("Usage: /admin user [id|@username]", reply_markup=main_menu(is_admin=True))
 
     user = None
     if q.startswith("@"):
@@ -145,7 +145,7 @@ async def admin_user(message: Message, db_session, tail: str):
 async def admin_ban(message: Message, db_session, tail: str, ban: bool):
     q = tail.strip()
     if not q:
-        return await message.answer("Usage: /admin ban <id>  |  /admin unban <id>", reply_markup=main_menu(is_admin=True))
+        return await message.answer("Usage: /admin ban [id]  |  /admin unban [id]", reply_markup=main_menu(is_admin=True))
     try:
         user_id = int(q)
     except ValueError:
@@ -178,7 +178,7 @@ async def admin_cleanup(message: Message, db_session):
 async def admin_broadcast(message: Message, db_session, tail: str):
     text = tail.strip()
     if not text:
-        return await message.answer("Usage: /admin broadcast <text>", reply_markup=main_menu(is_admin=True))
+        return await message.answer("Usage: /admin broadcast [text]", reply_markup=main_menu(is_admin=True))
 
     repo = Repository(db_session)
     user_ids = await repo.list_active_user_ids(limit=10000)
@@ -212,7 +212,7 @@ async def admin_prompt(message: Message, tail: str):
     if sub.startswith("set "):
         new_text = sub[len("set ") :].strip()
         if not new_text:
-            return await message.answer("Usage: /admin prompt set <text>", reply_markup=main_menu(is_admin=True))
+            return await message.answer("Usage: /admin prompt set [text]", reply_markup=main_menu(is_admin=True))
         save_prompt(new_text)
         logger.info(
             "admin_action prompt_set",
@@ -232,7 +232,7 @@ async def admin_sub(message: Message, db_session, tail: str):
     action = parts[0]
     if action == "grant":
         if len(parts) < 3:
-            return await message.answer("Usage: /admin sub grant <id> <free|pro> [days]", reply_markup=main_menu(is_admin=True))
+            return await message.answer("Usage: /admin sub grant [id] [free|pro] [days]", reply_markup=main_menu(is_admin=True))
         try:
             user_id = int(parts[1])
         except ValueError:
@@ -256,7 +256,7 @@ async def admin_sub(message: Message, db_session, tail: str):
 
     if action == "revoke":
         if len(parts) < 2:
-            return await message.answer("Usage: /admin sub revoke <id>", reply_markup=main_menu(is_admin=True))
+            return await message.answer("Usage: /admin sub revoke [id]", reply_markup=main_menu(is_admin=True))
         try:
             user_id = int(parts[1])
         except ValueError:
@@ -272,7 +272,7 @@ async def admin_sub(message: Message, db_session, tail: str):
 
     if action == "expiring":
         if len(parts) < 2:
-            return await message.answer("Usage: /admin sub expiring <days>", reply_markup=main_menu(is_admin=True))
+            return await message.answer("Usage: /admin sub expiring [days]", reply_markup=main_menu(is_admin=True))
         try:
             days = int(parts[1])
         except ValueError:
