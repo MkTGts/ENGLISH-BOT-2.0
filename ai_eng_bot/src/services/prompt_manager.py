@@ -18,7 +18,6 @@ def system_prompt_ru() -> str:
         "{"
         "\"reply_text\": string, "
         "\"corrections\": [{\"raw\": string, \"corrected\": string, \"explanation\": string, \"type\": \"grammar|lexis|style\"}], "
-        "\"follow_up_question\": string|null"
         "}\n"
         "Если ошибок нет — \"corrections\": [] (пустой массив). "
         "Всегда используй ключ \"reply_text\" (не \"response\")."
