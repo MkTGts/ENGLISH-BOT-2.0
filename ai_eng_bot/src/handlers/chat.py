@@ -49,15 +49,16 @@ async def typing_indicator(message: Message):
 def _format_reply(reply_text: str, corrections: list[dict], follow_up_question: str | None) -> str:
     parts: list[str] = [reply_text.strip()]
     if corrections:
-        lines = ["", "Corrections:"]
-        for c in corrections:
+        lines = ["", "🛠 <b>Corrections (mistakes & fixes):</b>"]
+        for idx, c in enumerate(corrections, start=1):
             raw = c.get("raw", "").strip()
             corrected = c.get("corrected", "").strip()
             explanation = c.get("explanation", "").strip()
             ctype = c.get("type", "").strip()
-            lines.append(f"- ({ctype}) {raw} → {corrected}")
+            prefix = f"{idx})" if raw or corrected or explanation else f"{idx})"
+            lines.append(f"{prefix} ({ctype}) {raw} → {corrected}".strip())
             if explanation:
-                lines.append(f"  - {explanation}")
+                lines.append(f"   — {explanation}")
         parts.append("\n".join(lines).strip())
     if follow_up_question:
         parts.append(f"\n{follow_up_question.strip()}")
