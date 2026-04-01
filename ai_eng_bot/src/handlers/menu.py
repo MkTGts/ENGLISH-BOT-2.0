@@ -12,8 +12,8 @@ ADMIN_MENU = ("Admin",)
 def main_menu(*, is_admin: bool) -> ReplyKeyboardMarkup:
     rows: list[list[KeyboardButton]] = [
         [KeyboardButton(text="Chat"), KeyboardButton(text="Help")],
-        [KeyboardButton(text="Privacy"), KeyboardButton(text="My stats")],
-        [KeyboardButton(text="Donat")],
+        [KeyboardButton(text="Privacy"), KeyboardButton(text="My stats")]
+        #[KeyboardButton(text="Donat")],
     ]
     if is_admin:
         rows.append([KeyboardButton(text="Admin")])
