@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from ai_eng_bot.src.config import settings
 from ai_eng_bot.src.database.repository import Repository
 from ai_eng_bot.src.handlers.menu import is_admin_user, main_menu
+from ai_eng_bot.src.services.access import DEFAULT_PLANS
 
 router = Router()
 
@@ -34,16 +35,7 @@ async def cmd_help(message: Message):
         "- Исправления (если есть) дам отдельным блоком.\n\n"
         "Команды:\n"
         "/privacy — политика хранения и очистка истории\n"
-        "/settings — настройки (заготовка)",
-        reply_markup=main_menu(is_admin=is_admin),
-    )
-
-
-@router.message(Command("settings"))
-async def cmd_settings(message: Message):
-    is_admin = is_admin_user(int(message.from_user.id)) if message.from_user else False
-    await message.answer(
-        "Настройки будут добавлены позже. Сейчас можно пользоваться чатом и /privacy.",
+        "/my_stats — личная статистика",
         reply_markup=main_menu(is_admin=is_admin),
     )
 
@@ -58,6 +50,10 @@ async def cmd_my_stats(message: Message, db_session):
     if stats is None:
         return await message.answer("Не смог найти ваш профиль в базе.", reply_markup=main_menu(is_admin=is_admin))
 
+    plan = str(stats["plan"])
+    limits = DEFAULT_PLANS.get(plan, DEFAULT_PLANS["free"])
+    remaining_tokens = max(0, limits.max_tokens_per_day - int(stats["day_tokens"]))
+
     await message.answer(
         "Ваша статистика:\n"
         f"- дата регистрации: {stats['registered_at']}\n"
@@ -65,7 +61,8 @@ async def cmd_my_stats(message: Message, db_session):
         f"- за всё время сообщений: {stats['total_messages']}\n"
         f"- за всё время токенов: {stats['total_tokens']}\n"
         f"- за день сообщений: {stats['day_messages']}\n"
-        f"- за день токенов: {stats['day_tokens']}\n",
+        f"- за день токенов: {stats['day_tokens']}\n"
+        f"- токенов на день осталось: {remaining_tokens}\n",
         reply_markup=main_menu(is_admin=is_admin),
     )
 
@@ -101,9 +98,9 @@ async def menu_privacy(message: Message):
     return await cmd_privacy(message)
 
 
-@router.message(F.text.lower() == "settings")
-async def menu_settings(message: Message):
-    return await cmd_settings(message)
+@router.message(F.text.lower() == "my stats")
+async def menu_my_stats(message: Message, db_session):
+    return await cmd_my_stats(message, db_session)
 
 
 @router.message(F.text.lower() == "chat")

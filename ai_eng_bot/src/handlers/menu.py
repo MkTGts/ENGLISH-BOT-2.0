@@ -5,14 +5,14 @@ from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 from ai_eng_bot.src.config import settings
 
 
-USER_MENU = ("Chat", "Help", "Privacy", "Settings")
+USER_MENU = ("Chat", "Help", "Privacy", "My stats")
 ADMIN_MENU = ("Admin",)
 
 
 def main_menu(*, is_admin: bool) -> ReplyKeyboardMarkup:
     rows: list[list[KeyboardButton]] = [
         [KeyboardButton(text="Chat"), KeyboardButton(text="Help")],
-        [KeyboardButton(text="Privacy"), KeyboardButton(text="Settings")],
+        [KeyboardButton(text="Privacy"), KeyboardButton(text="My stats")],
     ]
     if is_admin:
         rows.append([KeyboardButton(text="Admin")])
