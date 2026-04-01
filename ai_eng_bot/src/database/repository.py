@@ -379,7 +379,7 @@ class Repository:
         total_m, total_t = totals.get(user_id, (0, 0))
         day_m, day_t = day.get(user_id, (0, 0))
 
-         # Донаты Stars по пользователю
+        # Донаты Stars по пользователю
         donations_q = (
             select(func.coalesce(func.sum(Donation.amount_stars), 0))
             .where(Donation.user_id == user_id)

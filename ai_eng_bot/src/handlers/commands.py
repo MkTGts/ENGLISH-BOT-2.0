@@ -54,6 +54,7 @@ async def cmd_my_stats(message: Message, db_session):
     plan = str(stats["plan"])
     limits = DEFAULT_PLANS.get(plan, DEFAULT_PLANS["free"])
     remaining_tokens = max(0, limits.max_tokens_per_day - int(stats["day_tokens"]))
+    total_donations_stars = int(stats.get("total_donations_stars", 0))
 
     await message.answer(
         "Ваша статистика:\n"
@@ -63,7 +64,8 @@ async def cmd_my_stats(message: Message, db_session):
         f"- за всё время токенов: {stats['total_tokens']}\n"
         f"- за день сообщений: {stats['day_messages']}\n"
         f"- за день токенов: {stats['day_tokens']}\n"
-        f"- токенов на день осталось: {remaining_tokens}\n",
+        f"- токенов на день осталось: {remaining_tokens}\n"
+        f"- за всё время задонатил звёзд (сумма total_amount): {total_donations_stars}\n",
         reply_markup=main_menu(is_admin=is_admin),
     )
 
