@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_eng_bot.src.database.models import ErrorLog, MessageHistory, Subscription, Usage, User
+from ai_eng_bot.src.database.models import Donation, ErrorLog, MessageHistory, Subscription, Usage, User
 
 
 class Repository:
@@ -330,6 +330,15 @@ class Repository:
         week = await self._aggregate_message_and_tokens(user_ids=user_ids, since=week_since)
         day = await self._aggregate_message_and_tokens(user_ids=user_ids, since=day_since)
 
+        # Донаты (Stars) по пользователям
+        donations_q = (
+            select(Donation.user_id, func.coalesce(func.sum(Donation.amount_stars), 0))
+            .where(Donation.user_id.in_(user_ids))
+            .group_by(Donation.user_id)
+        )
+        donations_res = await self.session.execute(donations_q)
+        donations_map: dict[int, int] = {int(uid): int(total) for uid, total in donations_res.all()}
+
         report: list[dict] = []
         for u in users:
             uid = int(u.id)
@@ -351,6 +360,7 @@ class Repository:
                     "week_tokens": week_t,
                     "day_messages": day_m,
                     "day_tokens": day_t,
+                    "total_donations_stars": donations_map.get(uid, 0),
                 }
             )
         return report
@@ -369,6 +379,14 @@ class Repository:
         total_m, total_t = totals.get(user_id, (0, 0))
         day_m, day_t = day.get(user_id, (0, 0))
 
+         # Донаты Stars по пользователю
+        donations_q = (
+            select(func.coalesce(func.sum(Donation.amount_stars), 0))
+            .where(Donation.user_id == user_id)
+        )
+        res = await self.session.execute(donations_q)
+        total_donations_stars = int(res.scalar_one() or 0)
+
         return {
             "registered_at": user.created_at,
             "plan": plan,
@@ -376,5 +394,31 @@ class Repository:
             "total_tokens": total_t,
             "day_messages": day_m,
             "day_tokens": day_t,
+            "total_donations_stars": total_donations_stars,
         }
+
+    async def add_donation(
+        self,
+        *,
+        user_id: int,
+        amount_stars: int,
+        currency: str = "XTR",
+        provider: str = "telegram_stars",
+        provider_payment_id: str | None = None,
+        type_: str = "tip",
+        note: str | None = None,
+    ) -> Donation:
+        donation = Donation(
+            user_id=user_id,
+            amount_stars=amount_stars,
+            currency=currency,
+            provider=provider,
+            provider_payment_id=provider_payment_id,
+            type=type_,
+            note=note,
+        )
+        self.session.add(donation)
+        await self.session.commit()
+        await self.session.refresh(donation)
+        return donation
 

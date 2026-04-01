@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     log_path: str = "./ai_eng_bot/data/bot.log"
     log_level: str = "INFO"
 
+    # Payments / Telegram Stars
+    telegram_payment_provider_token: str = ""
+
     def ensure_paths(self) -> None:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         Path(self.stats_path).parent.mkdir(parents=True, exist_ok=True)

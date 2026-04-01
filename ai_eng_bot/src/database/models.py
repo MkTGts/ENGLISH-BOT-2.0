@@ -47,6 +47,7 @@ class User(Base):
     messages: Mapped[list["MessageHistory"]] = relationship(back_populates="user")
     subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="user")
     usage: Mapped[list["Usage"]] = relationship(back_populates="user")
+    donations: Mapped[list["Donation"]] = relationship(back_populates="user")
 
 
 class MessageHistory(Base):
@@ -124,4 +125,30 @@ class Usage(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user: Mapped["User"] = relationship(back_populates="usage")
+
+
+class Donation(Base):
+    """
+    Хранит информацию о донатах (сейчас — только Telegram Stars).
+    """
+
+    __tablename__ = "donations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+
+    provider: Mapped[str] = mapped_column(String(32), default="telegram_stars")
+    provider_payment_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    # Для Stars храним сумму в тех единицах, которые Telegram отдаёт в total_amount.
+    amount_stars: Mapped[int] = mapped_column(Integer, default=0)
+    currency: Mapped[str] = mapped_column(String(8), default="XTR")
+
+    type: Mapped[str] = mapped_column(String(16), default="tip")  # tip | topup | buy_plan (на будущее)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="donations")
 

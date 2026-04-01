@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Message, PreCheckoutQuery
 
 from ai_eng_bot.src.config import settings
 from ai_eng_bot.src.database.repository import Repository
@@ -152,11 +152,67 @@ async def privacy_clear_history(cb: CallbackQuery, db_session):
 
 @router.callback_query(F.data == "donate:stars")
 async def donate_stars(cb: CallbackQuery):
-    # Здесь позже можно добавить реальный Telegram Stars invoice.
-    await cb.answer(
-        "Скоро здесь появится полноценная оплата звёздами. Пока можно просто пользоваться ботом и писать обратную связь 😊",
-        show_alert=True,
+    if cb.from_user is None or cb.message is None:
+        await cb.answer()
+        return
+
+    # Простое меню с фиксированными суммами Stars
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="50 ⭐", callback_data="donate:stars:50"),
+                InlineKeyboardButton(text="100 ⭐", callback_data="donate:stars:100"),
+                InlineKeyboardButton(text="300 ⭐", callback_data="donate:stars:300"),
+            ],
+            [InlineKeyboardButton(text="Назад", callback_data="donate:back")],
+        ]
     )
+    await cb.message.edit_text("Выбери сумму доната в звёздах:", reply_markup=kb)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("donate:stars:"))
+async def donate_stars_amount(cb: CallbackQuery):
+    if cb.from_user is None or cb.message is None:
+        await cb.answer()
+        return
+
+    if not settings.telegram_payment_provider_token:
+        await cb.answer("Оплата звёздами ещё не настроена. Обратись к создателю бота.", show_alert=True)
+        return
+
+    parts = cb.data.split(":")
+    try:
+        amount_stars = int(parts[-1])
+    except (ValueError, IndexError):
+        await cb.answer("Неверный формат суммы.", show_alert=True)
+        return
+
+    # Telegram хранит суммы в минимальных единицах (копейках).
+    # Для Stars предполагаем 1 Star = 100 единиц.
+    amount_units = amount_stars * 100
+
+    prices = [LabeledPrice(label=f"Support {amount_stars} Stars", amount=amount_units)]
+
+    payload = f"donate_stars:{amount_stars}"
+
+    await cb.bot.send_invoice(
+        chat_id=cb.message.chat.id,
+        title="Поддержка бота звёздами",
+        description=f"Донат {amount_stars} Telegram Stars в поддержку развития English Bot 2.0.",
+        payload=payload,
+        provider_token=settings.telegram_payment_provider_token,
+        currency="XTR",
+        prices=prices,
+    )
+    await cb.answer()
+
+
+@router.callback_query(F.data == "donate:back")
+async def donate_back(cb: CallbackQuery):
+    if cb.message:
+        await cmd_donate(cb.message)
+    await cb.answer()
 
 
 @router.callback_query(F.data == "donate:why")
@@ -172,4 +228,40 @@ async def donate_why(cb: CallbackQuery):
     if cb.message:
         await cb.message.edit_text(text)
     await cb.answer()
+
+
+@router.pre_checkout_query()
+async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery):
+    # Здесь можно добавить валидацию payload, лимиты и т.д.
+    await pre_checkout_query.answer(ok=True)
+
+
+@router.message(F.successful_payment)
+async def process_successful_payment(message: Message, db_session):
+    if message.from_user is None or message.successful_payment is None:
+        return
+
+    sp = message.successful_payment
+    if sp.currency != "XTR":
+        return
+
+    user_id = int(message.from_user.id)
+    amount_units = int(sp.total_amount)
+
+    repo = Repository(db_session)
+    await repo.add_donation(
+        user_id=user_id,
+        amount_stars=amount_units,
+        currency=sp.currency,
+        provider="telegram_stars",
+        provider_payment_id=sp.telegram_payment_charge_id,
+        type_="tip",
+    )
+
+    is_admin = is_admin_user(user_id)
+    await message.answer(
+        "Спасибо за поддержку звёздами! ✨\n"
+        "Это помогает покрывать стоимость AI‑запросов и развивать бота дальше.",
+        reply_markup=main_menu(is_admin=is_admin),
+    )
 
