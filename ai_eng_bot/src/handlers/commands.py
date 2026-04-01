@@ -35,7 +35,8 @@ async def cmd_help(message: Message):
         "- Исправления (если есть) дам отдельным блоком.\n\n"
         "Команды:\n"
         "/privacy — политика хранения и очистка истории\n"
-        "/my_stats — личная статистика",
+        "/my_stats — личная статистика\n"
+        "/donate — поддержать развитие бота",
         reply_markup=main_menu(is_admin=is_admin),
     )
 
@@ -64,6 +65,22 @@ async def cmd_my_stats(message: Message, db_session):
         f"- за день токенов: {stats['day_tokens']}\n"
         f"- токенов на день осталось: {remaining_tokens}\n",
         reply_markup=main_menu(is_admin=is_admin),
+    )
+
+
+@router.message(Command("donate"))
+async def cmd_donate(message: Message):
+    is_admin = is_admin_user(int(message.from_user.id)) if message.from_user else False
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Поддержать звёздами (Telegram Stars)", callback_data="donate:stars")],
+            [InlineKeyboardButton(text="Что даёт донат?", callback_data="donate:why")],
+        ]
+    )
+    await message.answer(
+        "Ты можешь поддержать развитие бота.\n"
+        "Сейчас доступен донат через звёзды Telegram (Stars), позже появятся и другие способы.",
+        reply_markup=kb,
     )
 
 
@@ -103,6 +120,11 @@ async def menu_my_stats(message: Message, db_session):
     return await cmd_my_stats(message, db_session)
 
 
+@router.message(F.text.lower() == "donat")
+async def menu_donate(message: Message):
+    return await cmd_donate(message)
+
+
 @router.message(F.text.lower() == "chat")
 async def menu_chat(message: Message):
     is_admin = is_admin_user(int(message.from_user.id)) if message.from_user else False
@@ -125,5 +147,29 @@ async def privacy_clear_history(cb: CallbackQuery, db_session):
     deleted = await repo.delete_user_history(user_id=int(cb.from_user.id))
     if cb.message:
         await cb.message.edit_text(f"История очищена. Удалено сообщений: {deleted}.")
+    await cb.answer()
+
+
+@router.callback_query(F.data == "donate:stars")
+async def donate_stars(cb: CallbackQuery):
+    # Здесь позже можно добавить реальный Telegram Stars invoice.
+    await cb.answer(
+        "Скоро здесь появится полноценная оплата звёздами. Пока можно просто пользоваться ботом и писать обратную связь 😊",
+        show_alert=True,
+    )
+
+
+@router.callback_query(F.data == "donate:why")
+async def donate_why(cb: CallbackQuery):
+    text = (
+        "Зачем донатить?\n\n"
+        "- Донат помогает покрывать стоимость запросов к AI‑моделям.\n"
+        "- Чем стабильнее покрыты расходы, тем больше свобода экспериментировать с качеством ответов и новыми функциями.\n"
+        "- Это даёт возможность добавлять новые режимы практики, улучшать подсветку/объяснение ошибок и развивать админку.\n\n"
+        "Если бот помогает тебе практиковать английский и снимать страх ошибки — донат это способ сказать «спасибо» и "
+        "ускорить его развитие. ❤️"
+    )
+    if cb.message:
+        await cb.message.edit_text(text)
     await cb.answer()
 
